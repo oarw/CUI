@@ -20,7 +20,6 @@ struct cui_app {
     bool presented_once;
     bool surface_suspended;   /* Win32 window hidden or minimized */
     double last_time;
-    double last_present;
     void (*frame_cb)(cui_ctx *ui, void *user);
     void *frame_user;
     bool in_live_resize;

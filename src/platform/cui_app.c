@@ -173,7 +173,6 @@ void cui__app_render(cui_app *app) {
         cui__plat_present(app, app->sw_pixels, w, h, w * 4);
     }
     app->presented_once = true;
-    app->last_present = cui__plat_now();
 }
 
 static void cui__app_begin(cui_app *app) {
