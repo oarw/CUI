@@ -57,6 +57,10 @@ typedef struct cui_app_desc {
 CUI_API cui_app *cui_app_create(const cui_app_desc *desc);
 CUI_API void cui_app_destroy(cui_app *app);
 
+/* Releases the software framebuffer (safe to repeat, no effect on OpenGL).
+ * Call on the UI thread. The next visible render allocates it again. */
+CUI_API void cui_app_release_surface(cui_app *app);
+
 /* Presents the previous frame, waits for input or animation, then begins a
  * new frame. Returns false once the window was closed or cui_app_quit was
  * called. */

@@ -18,6 +18,7 @@ struct cui_app {
     bool running;
     bool in_frame;
     bool presented_once;
+    bool surface_suspended;   /* Win32 window hidden or minimized */
     double last_time;
     double last_present;
     void (*frame_cb)(cui_ctx *ui, void *user);

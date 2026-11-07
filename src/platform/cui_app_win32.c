@@ -226,7 +226,14 @@ static LRESULT CALLBACK cui__win32_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     case WM_CLOSE:
         app->running = false;
         return 0;
+    case WM_SHOWWINDOW:
+        app->surface_suspended = !wp || IsIconic(hwnd);
+        if (app->surface_suspended) cui_app_release_surface(app);
+        else cui_request_redraw(ui);
+        break;
     case WM_SIZE:
+        app->surface_suspended = wp == SIZE_MINIMIZED || !IsWindowVisible(hwnd);
+        if (app->surface_suspended) cui_app_release_surface(app);
         if (w) {
             w->width = LOWORD(lp);
             w->height = HIWORD(lp);
@@ -362,6 +369,7 @@ static LRESULT CALLBACK cui__win32_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
 }
 
 bool cui__plat_init(cui_app *app) {
+    app->surface_suspended = true;  /* until the first WM_SHOWWINDOW */
     cui__win32_dpi_awareness();
     cui__win32 *w = calloc(1, sizeof *w);
     if (!w) return false;

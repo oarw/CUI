@@ -543,7 +543,8 @@ int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_inp
     cui_pop_disabled(ui);
     if (rf.hovered) cui__set_cursor(ui, CUI_CURSOR_TEXT);
     bool was_focused = ui->focus == id;
-    float size = cui__fs(ui, o->size == CUI_SIZE_SM ? ui->theme.text_sm : ui->theme.text_body);
+    float size = cui__fs(ui, o->text_size > 0 ? o->text_size :
+                              (o->size == CUI_SIZE_SM ? ui->theme.text_sm : ui->theme.text_body));
     cui_font font = CUI_FONT_BODY;
     if (ui->tf_override) {   /* inline edit: type that matches the text it replaces */
         font = ui->tf_font;

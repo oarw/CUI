@@ -105,6 +105,13 @@ void cui_app_destroy(cui_app *app) {
     free(app);
 }
 
+void cui_app_release_surface(cui_app *app) {
+    if (!app) return;
+    free(app->sw_pixels);
+    app->sw_pixels = NULL;
+    app->sw_w = app->sw_h = 0;
+}
+
 cui_ctx *cui_app_ui(cui_app *app) { return app->ui; }
 void cui_app_quit(cui_app *app) { app->running = false; }
 bool cui_app_is_software(cui_app *app) { return app->software; }
@@ -144,13 +151,14 @@ void cui__app_render(cui_app *app) {
         app->in_frame = false;
     }
     const cui_draw_data *dd = cui_get_draw_data(app->ui);
+    if (app->surface_suspended && !app->screenshot_path) return;
     int w = dd->width_px, h = dd->height_px;
     if (w <= 0 || h <= 0) return;
     if (app->gl) {
         cui_gl_render(app->gl, dd, true);
         cui__plat_gl_swap(app);
     } else {
-        if (w != app->sw_w || h != app->sw_h) {
+        if (!app->sw_pixels || w != app->sw_w || h != app->sw_h) {
             free(app->sw_pixels);
             app->sw_pixels = malloc((size_t)w * (size_t)h * 4);
             app->sw_w = w; app->sw_h = h;
@@ -194,7 +202,9 @@ bool cui_app_frame(cui_app *app) {
     if (!app->running) return false;
     cui_ctx *ui = app->ui;
     double timeout;
-    if (app->desc.continuous || cui_needs_redraw(ui) || !app->presented_once) {
+    if (app->surface_suspended && !app->screenshot_path) {
+        timeout = -1;  /* worker results and restore messages still wake us */
+    } else if (app->desc.continuous || cui_needs_redraw(ui) || !app->presented_once) {
         timeout = 0;
         /* without vsync, pace animation frames to about 120 Hz */
         if (!app->gl || app->desc.no_vsync) {

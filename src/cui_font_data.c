@@ -6,6 +6,8 @@
 
 #ifndef CUI_NO_DEFAULT_FONTS
 
+#ifndef CUI_ICON_FONT_ONLY
+
 const unsigned int cui_font_inter_regular_size = 42800;      /* unpacked */
 const unsigned int cui_font_inter_regular_packed = 19977;    /* raw DEFLATE */
 const unsigned char cui_font_inter_regular[19977] = {
@@ -3292,6 +3294,8 @@ const unsigned char cui_font_geist_mono[9947] = {
   131,1,219,14,174,223,25,186,8,106,229,213,32,39,23,46,36,247,44,106,
   132,248,214,21,4,254,7,
 };
+
+#endif /* CUI_ICON_FONT_ONLY */
 
 const unsigned int cui_font_lucide_size = 58504;      /* unpacked */
 const unsigned int cui_font_lucide_packed = 30927;    /* raw DEFLATE */

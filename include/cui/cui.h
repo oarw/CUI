@@ -585,6 +585,7 @@ typedef struct cui_input_opts {
     const char *suffix;        /* muted text after the value, e.g. "USD" or "kg" */
     float *scroll;             /* textarea: in/out scroll position, 0 top .. 1 end; writing a new value scrolls there */
     bool follow_end;           /* textarea: stay at the end while text is appended, if it was there */
+    float text_size;           /* text size in points; 0 follows the theme */
 } cui_input_opts;
 
 /* Single line text field. Returns CUI_CHANGED / CUI_SUBMITTED (Enter) flags. */

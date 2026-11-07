@@ -127,11 +127,14 @@ def build_data():
         f.write(" * Stored as raw DEFLATE streams and unpacked when a context is created. */\n")
         f.write("#include \"cui_internal.h\"\n\n")
         f.write("#ifndef CUI_NO_DEFAULT_FONTS\n\n")
+        f.write("#ifndef CUI_ICON_FONT_ONLY\n\n")
         for name, file in [("cui_font_inter_regular", "Inter-Regular.ttf"),
                            ("cui_font_inter_medium", "Inter-Medium.ttf"),
                            ("cui_font_geist_medium", "Geist-Medium.ttf"),
                            ("cui_font_geist_mono", "GeistMono-Regular.ttf"),
                            ("cui_font_lucide", "Lucide-CUI.ttf")]:
+            if name == "cui_font_lucide":
+                f.write("#endif /* CUI_ICON_FONT_ONLY */\n\n")
             emit_array(f, name, os.path.join(FONTS, file))
         f.write("#endif\n")
     print("wrote", out)
