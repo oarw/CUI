@@ -14,6 +14,8 @@ struct cui_app {
     cui_sw_renderer *sw;
     uint8_t *sw_pixels;
     int sw_w, sw_h;
+    /* Optional backend support for presenting a small buffer at a frame y. */
+    void (*present_rows)(cui_app *app, const void *bgra, int width, int y, int rows, int stride);
     bool software;
     bool running;
     bool in_frame;

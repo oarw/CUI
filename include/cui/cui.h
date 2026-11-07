@@ -586,6 +586,7 @@ typedef struct cui_input_opts {
     float *scroll;             /* textarea: in/out scroll position, 0 top .. 1 end; writing a new value scrolls there */
     bool follow_end;           /* textarea: stay at the end while text is appended, if it was there */
     float text_size;           /* text size in points; 0 follows the theme */
+    bool *scroll_changed;      /* out: user wheel/scrollbar changed the position this frame */
 } cui_input_opts;
 
 /* Single line text field. Returns CUI_CHANGED / CUI_SUBMITTED (Enter) flags. */

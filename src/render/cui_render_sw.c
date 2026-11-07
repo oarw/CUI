@@ -7,6 +7,7 @@
  * horizontal bands. */
 #include "../cui_internal.h"
 #include "cui/cui_render.h"
+#include <limits.h>
 
 #if defined(_WIN32)
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -187,6 +188,7 @@ typedef struct {
     int width, height, stride;
     cui_sw_format fmt;
     int y0, y1;   /* band */
+    int pixels_y0; /* frame y corresponding to the first row of pixels */
 } cui__sw_job;
 
 static void cui__blend(uint8_t *p, cui__px s, bool bgra) {
@@ -235,7 +237,7 @@ static void cui__raster_tri(const cui__sw_job *job, const cui_vertex *a, const c
     const cui_vertex *tv[3] = { a, b, c };
     for (int y = y0; y < y1; y++) {
         float py = (float)y + 0.5f;
-        uint8_t *row = job->pixels + (size_t)y * (size_t)job->stride;
+        uint8_t *row = job->pixels + (size_t)(y - job->pixels_y0) * (size_t)job->stride;
         /* horizontal span of the triangle on this row */
         float sx0 = 1e30f, sx1 = -1e30f;
         for (int e = 0; e < 3; e++) {
@@ -341,7 +343,7 @@ static bool cui__raster_quad(const cui__sw_job *job, const cui_vertex *v0, const
         opaque[bi] = (uint8_t)(cb * 255.0f + 0.5f); opaque[3] = 255;
         float ly = v0->ly + (py - qy0);
         float ay = fabsf(ly);
-        uint8_t *row = job->pixels + (size_t)y * (size_t)job->stride;
+        uint8_t *row = job->pixels + (size_t)(y - job->pixels_y0) * (size_t)job->stride;
         if (mode == CUI_SHADE_TEXT) {
             float vv = v0->v + (py - qy0) * dv;
             int tyi = (int)(vv * (float)(tex ? tex->h : 1));
@@ -437,8 +439,9 @@ static DWORD WINAPI cui__sw_thread(LPVOID p) { cui__sw_run(p); return 0; }
 static void *cui__sw_thread(void *p) { cui__sw_run(p); return NULL; }
 #endif
 
-void cui_sw_render(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels, int width, int height, int stride, cui_sw_format fmt) {
-    if (!r || !dd || !pixels) return;
+static void cui__sw_render_region(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels,
+                                  int width, int y0, int y1, int stride, cui_sw_format fmt, int threads) {
+    int height = y1 - y0;
     /* clear */
     cui_color cc = dd->clear_color;
     uint8_t c4[4] = { cc.r, cc.g, cc.b, 255 };
@@ -447,7 +450,6 @@ void cui_sw_render(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels, in
         uint8_t *row = (uint8_t *)pixels + (size_t)y * (size_t)stride;
         for (int x = 0; x < width; x++) memcpy(row + x * 4, c4, 4);
     }
-    int threads = r->threads;
     if (height < 64 || dd->index_count < 600) threads = 1;
     if (threads > height / 16) threads = CUI_MAX(1, height / 16);
     cui__sw_job jobs[32];
@@ -455,7 +457,8 @@ void cui_sw_render(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels, in
     for (int t = 0; t < threads; t++) {
         jobs[t].dd = dd; jobs[t].r = r; jobs[t].pixels = pixels;
         jobs[t].width = width; jobs[t].height = height; jobs[t].stride = stride; jobs[t].fmt = fmt;
-        jobs[t].y0 = t * band; jobs[t].y1 = CUI_MIN(height, (t + 1) * band);
+        jobs[t].pixels_y0 = y0;
+        jobs[t].y0 = y0 + t * band; jobs[t].y1 = y0 + CUI_MIN(height, (t + 1) * band);
     }
     if (threads == 1) { cui__sw_run(&jobs[0]); return; }
 #if defined(_WIN32)
@@ -470,6 +473,18 @@ void cui_sw_render(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels, in
     cui__sw_run(&jobs[0]);
     for (int t = 1; t < threads; t++) { if (ok[t]) pthread_join(th[t], NULL); else cui__sw_run(&jobs[t]); }
 #endif
+}
+
+void cui_sw_render(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels, int width, int height, int stride, cui_sw_format fmt) {
+    if (!r || !dd || !pixels || width <= 0 || width > INT_MAX / 4 || height <= 0 || stride < width * 4) return;
+    cui__sw_render_region(r, dd, pixels, width, 0, height, stride, fmt, r->threads);
+}
+
+void cui_sw_render_rows(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels,
+                        int width, int y0, int y1, int stride, cui_sw_format fmt) {
+    if (!r || !dd || !pixels || width <= 0 || width > INT_MAX / 4 || stride < width * 4 ||
+        y0 < 0 || y1 <= y0 || y1 > dd->height_px) return;
+    cui__sw_render_region(r, dd, pixels, width, y0, y1, stride, fmt, 1);
 }
 
 /* ---- PNG writer ---- */

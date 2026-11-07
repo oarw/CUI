@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <imm.h>
 
 #ifndef WM_DPICHANGED
 #define WM_DPICHANGED 0x02E0
@@ -45,6 +46,8 @@ typedef struct {
     cui_cursor cursor;
     bool in_size_move;
     BITMAPINFO bmi;
+    RECT ime_rect;
+    bool ime_rect_valid, system_caret;
 } cui__win32;
 
 static HMODULE cui__opengl32;
@@ -210,6 +213,39 @@ static const char *cui__win32_get_clip(void *user) {
     return result;
 }
 
+static void cui__win32_position_ime(cui__win32 *w) {
+    if (!w || !w->ime_rect_valid || GetFocus() != w->hwnd) return;
+    if (!w->system_caret) {
+        /* Hidden native caret for IMEs that query GetGUIThreadInfo. CUI paints it. */
+        w->system_caret = CreateCaret(w->hwnd, NULL, 1, w->ime_rect.bottom - w->ime_rect.top) != 0;
+    }
+    SetCaretPos(w->ime_rect.left, w->ime_rect.top);
+    HIMC imc = ImmGetContext(w->hwnd);
+    if (!imc) return;
+    COMPOSITIONFORM comp = {0};
+    comp.dwStyle = CFS_POINT;
+    comp.ptCurrentPos.x = w->ime_rect.left;
+    comp.ptCurrentPos.y = w->ime_rect.top;
+    ImmSetCompositionWindow(imc, &comp);
+    CANDIDATEFORM cand = {0};
+    cand.dwStyle = CFS_EXCLUDE;
+    cand.ptCurrentPos = comp.ptCurrentPos;
+    cand.rcArea = w->ime_rect;
+    ImmSetCandidateWindow(imc, &cand);
+    ImmReleaseContext(w->hwnd, imc);
+}
+
+static void cui__win32_text_rect(void *user, cui_rect caret) {
+    cui__win32 *w = cui__w(user);
+    if (!w || caret.h <= 0) return;
+    RECT r = { (LONG)floorf(caret.x * w->scale), (LONG)floorf(caret.y * w->scale),
+               (LONG)ceilf((caret.x + caret.w) * w->scale), (LONG)ceilf((caret.y + caret.h) * w->scale) };
+    if (w->ime_rect_valid && EqualRect(&r, &w->ime_rect)) return;
+    w->ime_rect = r;
+    w->ime_rect_valid = true;
+    cui__win32_position_ime(w);
+}
+
 static LRESULT CALLBACK cui__win32_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     cui_app *app = (cui_app *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
     if (!app) {
@@ -348,8 +384,21 @@ static LRESULT CALLBACK cui__win32_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         cui_input_text(ui, buf);
         return 0;
     }
-    case WM_SETFOCUS: cui_input_focus(ui, true); return 0;
-    case WM_KILLFOCUS: cui_input_focus(ui, false); return 0;
+    case WM_SETFOCUS:
+        cui_input_focus(ui, true);
+        cui__win32_position_ime(w);
+        return 0;
+    case WM_KILLFOCUS:
+        cui_input_focus(ui, false);
+        if (w && w->system_caret) { DestroyCaret(); w->system_caret = false; }
+        return 0;
+    case WM_IME_STARTCOMPOSITION:
+    case WM_INPUTLANGCHANGE:
+        cui__win32_position_ime(w);
+        break;
+    case WM_IME_NOTIFY:
+        if (wp == IMN_OPENCANDIDATE) cui__win32_position_ime(w);
+        break;
     case WM_SETCURSOR:
         if (w && LOWORD(lp) == HTCLIENT) { SetCursor(w->cursors[w->cursor]); return TRUE; }
         break;
@@ -368,7 +417,10 @@ static LRESULT CALLBACK cui__win32_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+static void cui__win32_present_rows(cui_app *app, const void *bgra, int width, int y, int height, int stride);
+
 bool cui__plat_init(cui_app *app) {
+    app->present_rows = cui__win32_present_rows;
     app->surface_suspended = true;  /* until the first WM_SHOWWINDOW */
     cui__win32_dpi_awareness();
     cui__win32 *w = calloc(1, sizeof *w);
@@ -417,6 +469,7 @@ bool cui__plat_init(cui_app *app) {
     pi.set_clipboard = cui__win32_set_clip;
     pi.get_clipboard = cui__win32_get_clip;
     pi.set_cursor = cui__win32_set_cursor;
+    pi.set_text_input_rect = cui__win32_text_rect;
     cui_set_platform(app->ui, &pi);
     return true;
 }
@@ -480,7 +533,7 @@ bool cui__plat_gl_create(cui_app *app, bool vsync) {
 
 void cui__plat_gl_swap(cui_app *app) { SwapBuffers(cui__w(app)->hdc); }
 
-void cui__plat_present(cui_app *app, const void *bgra, int width, int height, int stride) {
+static void cui__win32_present_rows(cui_app *app, const void *bgra, int width, int y, int height, int stride) {
     cui__win32 *w = cui__w(app);
     BITMAPINFO *bmi = &w->bmi;
     memset(bmi, 0, sizeof *bmi);
@@ -490,7 +543,12 @@ void cui__plat_present(cui_app *app, const void *bgra, int width, int height, in
     bmi->bmiHeader.biPlanes = 1;
     bmi->bmiHeader.biBitCount = 32;
     bmi->bmiHeader.biCompression = BI_RGB;
-    SetDIBitsToDevice(w->hdc, 0, 0, (DWORD)width, (DWORD)height, 0, 0, 0, (UINT)height, bgra, bmi, DIB_RGB_COLORS);
+    /* Each band is a complete top-down DIB placed at its destination y. */
+    SetDIBitsToDevice(w->hdc, 0, y, (DWORD)width, (DWORD)height, 0, 0, 0, (UINT)height, bgra, bmi, DIB_RGB_COLORS);
+}
+
+void cui__plat_present(cui_app *app, const void *bgra, int width, int height, int stride) {
+    cui__win32_present_rows(app, bgra, width, 0, height, stride);
 }
 
 void cui__plat_metrics(cui_app *app, float *wpt, float *hpt, float *scale, int *fb_w, int *fb_h) {

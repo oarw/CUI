@@ -52,6 +52,8 @@ typedef struct cui_app_desc {
     cui_theme_mode theme;
     cui_accent accent;
     bool follow_system_theme;   /* use the OS light/dark setting where available */
+    int sw_band_height;         /* experimental Win32 software bands in pixels; 0 = full frame.
+                                * Reduces memory, but presentation may tear between bands. */
 } cui_app_desc;
 
 CUI_API cui_app *cui_app_create(const cui_app_desc *desc);
@@ -66,6 +68,11 @@ CUI_API void cui_app_release_surface(cui_app *app);
  * called. */
 CUI_API bool cui_app_frame(cui_app *app);
 CUI_API cui_ctx *cui_app_ui(cui_app *app);
+
+/* Register the same drawing function used by a manual cui_app_frame loop.
+ * Native modal resize loops call it to lay out and render at the current size.
+ * Callbacks run on the UI thread; user data must outlive the registration. */
+CUI_API void cui_app_set_frame_callback(cui_app *app, void (*frame)(cui_ctx *ui, void *user), void *user);
 
 /* Creates the app, calls frame() until the window closes, destroys it. */
 CUI_API int cui_app_run(const cui_app_desc *desc, void (*frame)(cui_ctx *ui, void *user), void *user);

@@ -113,6 +113,11 @@ void cui_app_release_surface(cui_app *app) {
 }
 
 cui_ctx *cui_app_ui(cui_app *app) { return app->ui; }
+void cui_app_set_frame_callback(cui_app *app, void (*frame)(cui_ctx *ui, void *user), void *user) {
+    if (!app) return;
+    app->frame_cb = frame;
+    app->frame_user = user;
+}
 void cui_app_quit(cui_app *app) { app->running = false; }
 bool cui_app_is_software(cui_app *app) { return app->software; }
 void *cui_app_native_window(cui_app *app) { return cui__plat_native(app); }
@@ -158,14 +163,24 @@ void cui__app_render(cui_app *app) {
         cui_gl_render(app->gl, dd, true);
         cui__plat_gl_swap(app);
     } else {
-        if (!app->sw_pixels || w != app->sw_w || h != app->sw_h) {
+        int rows = app->present_rows && app->desc.sw_band_height > 0 ? CUI_MIN(h, app->desc.sw_band_height) : h;
+        if (!app->sw_pixels || w != app->sw_w || rows != app->sw_h) {
             free(app->sw_pixels);
-            app->sw_pixels = malloc((size_t)w * (size_t)h * 4);
-            app->sw_w = w; app->sw_h = h;
+            app->sw_pixels = malloc((size_t)w * (size_t)rows * 4);
+            app->sw_w = w; app->sw_h = rows;
         }
         if (!app->sw_pixels) return;
-        cui_sw_render(app->sw, dd, app->sw_pixels, w, h, w * 4, CUI_SW_BGRA);
-        cui__plat_present(app, app->sw_pixels, w, h, w * 4);
+        if (rows < h) {
+            for (int y = 0; y < h; ) {
+                int end = y + CUI_MIN(rows, h - y);
+                cui_sw_render_rows(app->sw, dd, app->sw_pixels, w, y, end, w * 4, CUI_SW_BGRA);
+                app->present_rows(app, app->sw_pixels, w, y, end - y, w * 4);
+                y = end;
+            }
+        } else {
+            cui_sw_render(app->sw, dd, app->sw_pixels, w, h, w * 4, CUI_SW_BGRA);
+            cui__plat_present(app, app->sw_pixels, w, h, w * 4);
+        }
     }
     app->presented_once = true;
     app->last_present = cui__plat_now();
@@ -224,7 +239,8 @@ bool cui_app_frame(cui_app *app) {
 
 void cui__app_live_frame(cui_app *app) {
     /* called by backends while the OS runs a modal resize loop */
-    if (!app->frame_cb || app->in_live_resize) {
+    if (app->in_live_resize) return;
+    if (!app->frame_cb) {
         if (!app->in_frame) {
             const cui_draw_data *dd = cui_get_draw_data(app->ui);
             if (dd->vertex_count) cui__app_render(app);
