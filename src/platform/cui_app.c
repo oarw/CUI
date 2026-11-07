@@ -13,6 +13,9 @@ static bool cui__env_is(const char *name, const char *value) {
 
 static void cui__app_make_software(cui_app *app) {
     if (!app->sw) app->sw = cui_sw_create();
+    /* Desktop UI frames are small; spawning up to seven workers per frame
+     * costs more CPU than it saves here. Keep one helper alongside the UI thread. */
+    cui_sw_set_threads(app->sw, 2);
     app->software = true;
     cui_renderer_iface iface = cui_sw_iface(app->sw);
     cui_set_renderer(app->ui, &iface);
