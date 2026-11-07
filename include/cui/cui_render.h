@@ -37,13 +37,6 @@ CUI_API cui_renderer_iface cui_sw_iface(cui_sw_renderer *r);
 /* Renders draw data into a pixel buffer of width x height. stride is in bytes. */
 CUI_API void cui_sw_render(cui_sw_renderer *r, const cui_draw_data *dd, void *pixels,
                            int width, int height, int stride, cui_sw_format format);
-/* Renders [y0, y1) of dd into a (y1-y0)-row buffer. Row zero in the buffer
- * corresponds to y0 in the frame; geometry and clips keep frame coordinates.
- * Clears only width*4 bytes per row, leaving stride padding untouched.
- * Single threaded, so successive small bands do not create worker threads.
- * Invalid dimensions/ranges are ignored. */
-CUI_API void cui_sw_render_rows(cui_sw_renderer *r, const cui_draw_data *dd, void *band_pixels,
-                                int width, int y0, int y1, int stride, cui_sw_format format);
 /* Number of worker threads (1 = single threaded, default: number of cores up to 8). */
 CUI_API void cui_sw_set_threads(cui_sw_renderer *r, int threads);
 

@@ -62,6 +62,8 @@ static void cui__paint_edit(cui_ctx *ui, cui_node *n, void *data) {
     /* Use the laid-out rectangle and the final scroll position, not last
      * frame's area. This also tracks resize, font-size changes and scrolling. */
     if (p->focused && p->editable && ui->platform.set_text_input_rect) {
+        if (ui->platform.set_text_input_size)
+            ui->platform.set_text_input_size(ui->platform.user, p->size);
         float fh = cui__font_line_height(ui, p->font, p->size);
         float x = r.x - p->scroll_x, y = r.y + (r.h - fh) * 0.5f;
         int start = 0;

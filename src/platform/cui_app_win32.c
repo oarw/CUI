@@ -48,6 +48,9 @@ typedef struct {
     BITMAPINFO bmi;
     RECT ime_rect;
     bool ime_rect_valid, system_caret;
+    float ime_size;
+    int caret_height;
+    LOGFONTW ime_font;
 } cui__win32;
 
 static HMODULE cui__opengl32;
@@ -215,13 +218,25 @@ static const char *cui__win32_get_clip(void *user) {
 
 static void cui__win32_position_ime(cui__win32 *w) {
     if (!w || !w->ime_rect_valid || GetFocus() != w->hwnd) return;
+    int height = w->ime_rect.bottom - w->ime_rect.top;
+    if (w->system_caret && w->caret_height != height) {
+        DestroyCaret();
+        w->system_caret = false;
+    }
     if (!w->system_caret) {
         /* Hidden native caret for IMEs that query GetGUIThreadInfo. CUI paints it. */
-        w->system_caret = CreateCaret(w->hwnd, NULL, 1, w->ime_rect.bottom - w->ime_rect.top) != 0;
+        w->system_caret = CreateCaret(w->hwnd, NULL, 1, height) != 0;
+        w->caret_height = height;
     }
     SetCaretPos(w->ime_rect.left, w->ime_rect.top);
     HIMC imc = ImmGetContext(w->hwnd);
     if (!imc) return;
+    if (w->ime_size > 0) {
+        /* CUI sizes are em units at 96 DPI, not typographic points. */
+        w->ime_font.lfHeight = -(LONG)CUI_MAX(1, roundf(w->ime_size * w->scale));
+        w->ime_font.lfWidth = 0;
+        ImmSetCompositionFontW(imc, &w->ime_font);
+    }
     COMPOSITIONFORM comp = {0};
     comp.dwStyle = CFS_POINT;
     comp.ptCurrentPos.x = w->ime_rect.left;
@@ -233,6 +248,13 @@ static void cui__win32_position_ime(cui__win32 *w) {
     cand.rcArea = w->ime_rect;
     ImmSetCandidateWindow(imc, &cand);
     ImmReleaseContext(w->hwnd, imc);
+}
+
+static void cui__win32_text_size(void *user, float size) {
+    cui__win32 *w = cui__w(user);
+    if (w->ime_size == size) return;
+    w->ime_size = size;
+    w->ime_rect_valid = false;  /* apply font and position together on the next rect */
 }
 
 static void cui__win32_text_rect(void *user, cui_rect caret) {
@@ -417,10 +439,7 @@ static LRESULT CALLBACK cui__win32_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-static void cui__win32_present_rows(cui_app *app, const void *bgra, int width, int y, int height, int stride);
-
 bool cui__plat_init(cui_app *app) {
-    app->present_rows = cui__win32_present_rows;
     app->surface_suspended = true;  /* until the first WM_SHOWWINDOW */
     cui__win32_dpi_awareness();
     cui__win32 *w = calloc(1, sizeof *w);
@@ -470,6 +489,12 @@ bool cui__plat_init(cui_app *app) {
     pi.get_clipboard = cui__win32_get_clip;
     pi.set_cursor = cui__win32_set_cursor;
     pi.set_text_input_rect = cui__win32_text_rect;
+    pi.set_text_input_size = cui__win32_text_size;
+    NONCLIENTMETRICSW metrics = {0};
+    metrics.cbSize = sizeof metrics;
+    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof metrics, &metrics, 0))
+        w->ime_font = metrics.lfMessageFont;
+    else GetObjectW(GetStockObject(DEFAULT_GUI_FONT), sizeof w->ime_font, &w->ime_font);
     cui_set_platform(app->ui, &pi);
     return true;
 }
@@ -533,7 +558,7 @@ bool cui__plat_gl_create(cui_app *app, bool vsync) {
 
 void cui__plat_gl_swap(cui_app *app) { SwapBuffers(cui__w(app)->hdc); }
 
-static void cui__win32_present_rows(cui_app *app, const void *bgra, int width, int y, int height, int stride) {
+void cui__plat_present(cui_app *app, const void *bgra, int width, int height, int stride) {
     cui__win32 *w = cui__w(app);
     BITMAPINFO *bmi = &w->bmi;
     memset(bmi, 0, sizeof *bmi);
@@ -543,12 +568,7 @@ static void cui__win32_present_rows(cui_app *app, const void *bgra, int width, i
     bmi->bmiHeader.biPlanes = 1;
     bmi->bmiHeader.biBitCount = 32;
     bmi->bmiHeader.biCompression = BI_RGB;
-    /* Each band is a complete top-down DIB placed at its destination y. */
-    SetDIBitsToDevice(w->hdc, 0, y, (DWORD)width, (DWORD)height, 0, 0, 0, (UINT)height, bgra, bmi, DIB_RGB_COLORS);
-}
-
-void cui__plat_present(cui_app *app, const void *bgra, int width, int height, int stride) {
-    cui__win32_present_rows(app, bgra, width, 0, height, stride);
+    SetDIBitsToDevice(w->hdc, 0, 0, (DWORD)width, (DWORD)height, 0, 0, 0, (UINT)height, bgra, bmi, DIB_RGB_COLORS);
 }
 
 void cui__plat_metrics(cui_app *app, float *wpt, float *hpt, float *scale, int *fb_w, int *fb_h) {

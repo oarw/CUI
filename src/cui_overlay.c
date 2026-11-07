@@ -576,13 +576,18 @@ static bool cui__modal_begin(cui_ctx *ui, cui_id id, const char *title, bool *op
                              bool persistent, bool close_button, int kind, cui_side side) {
     cui__modal_state *st = cui_state(ui, id, sizeof *st);
     bool is_open = open && *open;
+    bool changed = is_open != st->was_open;
     if (is_open && !st->was_open) { st->opened = ui->frame; st->z = 1000 + ++ui->layer_seq; }
     st->was_open = is_open;
     float target = is_open ? 1.0f : 0.0f;
-    if (is_open) {
-        if (kind == 0) cui__spring(ui, &st->t, target, CUI__SPRING_DIALOG);
-        else cui__spring(ui, &st->t, target, 0.42f, 0.0f);   /* sheets travel the height of the screen */
-    } else cui__spring(ui, &st->t, target, CUI__SPRING_EXIT);
+    /* Idle time or synchronous settings I/O before a toggle must not consume
+     * the new transition's first frames. Sheets travel equally in either direction. */
+    float dt = ui->dt;
+    if (changed) ui->dt = CUI_MIN(dt, 1.0f / 120.0f);
+    if (kind == 1) cui__spring(ui, &st->t, target, 0.42f, 0.0f);
+    else if (is_open) cui__spring(ui, &st->t, target, CUI__SPRING_DIALOG);
+    else cui__spring(ui, &st->t, target, CUI__SPRING_EXIT);
+    ui->dt = dt;
     if (!is_open && st->t.x <= 0.01f) { st->t.x = 0; st->t.v = 0; return false; }
     float t = cui__clampf(st->t.x, 0, 1);
     cui_id scrim_id = id ^ 0x5C819u;

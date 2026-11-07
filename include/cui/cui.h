@@ -267,6 +267,7 @@ typedef struct cui_platform_iface {
     const char *(*get_clipboard)(void *user);   /* returned string stays valid until next call */
     void (*set_cursor)(void *user, cui_cursor cursor);
     void (*set_text_input_rect)(void *user, cui_rect caret);  /* IME candidate window position */
+    void (*set_text_input_size)(void *user, float size);     /* IME font em size in logical units */
 } cui_platform_iface;
 CUI_API void cui_set_platform(cui_ctx *ui, const cui_platform_iface *platform);
 CUI_API cui_cursor cui_get_cursor(cui_ctx *ui);

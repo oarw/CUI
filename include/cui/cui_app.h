@@ -52,8 +52,6 @@ typedef struct cui_app_desc {
     cui_theme_mode theme;
     cui_accent accent;
     bool follow_system_theme;   /* use the OS light/dark setting where available */
-    int sw_band_height;         /* experimental Win32 software bands in pixels; 0 = full frame.
-                                * Reduces memory, but presentation may tear between bands. */
 } cui_app_desc;
 
 CUI_API cui_app *cui_app_create(const cui_app_desc *desc);

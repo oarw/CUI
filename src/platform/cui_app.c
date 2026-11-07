@@ -163,24 +163,14 @@ void cui__app_render(cui_app *app) {
         cui_gl_render(app->gl, dd, true);
         cui__plat_gl_swap(app);
     } else {
-        int rows = app->present_rows && app->desc.sw_band_height > 0 ? CUI_MIN(h, app->desc.sw_band_height) : h;
-        if (!app->sw_pixels || w != app->sw_w || rows != app->sw_h) {
+        if (!app->sw_pixels || w != app->sw_w || h != app->sw_h) {
             free(app->sw_pixels);
-            app->sw_pixels = malloc((size_t)w * (size_t)rows * 4);
-            app->sw_w = w; app->sw_h = rows;
+            app->sw_pixels = malloc((size_t)w * (size_t)h * 4);
+            app->sw_w = w; app->sw_h = h;
         }
         if (!app->sw_pixels) return;
-        if (rows < h) {
-            for (int y = 0; y < h; ) {
-                int end = y + CUI_MIN(rows, h - y);
-                cui_sw_render_rows(app->sw, dd, app->sw_pixels, w, y, end, w * 4, CUI_SW_BGRA);
-                app->present_rows(app, app->sw_pixels, w, y, end - y, w * 4);
-                y = end;
-            }
-        } else {
-            cui_sw_render(app->sw, dd, app->sw_pixels, w, h, w * 4, CUI_SW_BGRA);
-            cui__plat_present(app, app->sw_pixels, w, h, w * 4);
-        }
+        cui_sw_render(app->sw, dd, app->sw_pixels, w, h, w * 4, CUI_SW_BGRA);
+        cui__plat_present(app, app->sw_pixels, w, h, w * 4);
     }
     app->presented_once = true;
     app->last_present = cui__plat_now();
@@ -221,10 +211,11 @@ bool cui_app_frame(cui_app *app) {
         timeout = -1;  /* worker results and restore messages still wake us */
     } else if (app->desc.continuous || cui_needs_redraw(ui) || !app->presented_once) {
         timeout = 0;
-        /* without vsync, pace animation frames to about 120 Hz */
+        /* Software frames target 60 Hz. Count layout/raster time as part of
+         * the interval, rather than adding a full sleep after every render. */
         if (!app->gl || app->desc.no_vsync) {
-            double since = cui__plat_now() - app->last_present;
-            double target = 1.0 / 120.0;
+            double since = cui__plat_now() - app->last_time;
+            double target = 1.0 / (app->gl ? 120.0 : 60.0);
             if (since < target) timeout = target - since;
         }
     } else {
