@@ -21,6 +21,11 @@ typedef struct {
     float line_h;
     int line_count;
     cui_text_layout_line *lines;
+    /* textarea scrollbar: thumb in the field's right padding */
+    cui_id bar_id;
+    float bar_alpha, bar_w, thumb_y, thumb_h;
+    cui_rect bar_zone;
+    cui_color bar_color;
 } cui__edit_paint;
 
 static int cui__edit_mask(char *out, int cap, int len_cp) {
@@ -121,6 +126,13 @@ static void cui__paint_edit(cui_ctx *ui, cui_node *n, void *data) {
         }
     }
     cui_pop_clip(ui);
+    if (p->bar_id) {
+        cui__paint_add_hit(ui, p->bar_id, p->bar_zone, CUI_NF_INTERACTIVE);
+        if (p->bar_alpha > 0.01f) {
+            cui_rect th = { p->bar_zone.x + (p->bar_zone.w - p->bar_w) * 0.5f, p->thumb_y, p->bar_w, p->thumb_h };
+            cui_draw_rect(ui, th, CUI_CORNERS(p->bar_w * 0.5f), cui_alpha(p->bar_color, p->bar_alpha));
+        }
+    }
     ui->text_unshaped = unshaped;
 }
 
@@ -543,13 +555,53 @@ int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_inp
     bool password = o->password && !e->show_password;
     cui__edit_result er = cui__edit_logic(ui, id, e, buf, cap, multiline, password, o->read_only || disabled, area,
                                           font, size, line_h, rf);
-    if (multiline && rf.hovered && ui->scroll_dy != 0 && area.h > 0) {
-        /* wheel scrolls the text whether or not the field has focus */
+    cui_id bar_id = id ^ 0x5CBA11u;
+    float bar_max = 0, bar_thumb_y = 0, bar_thumb_h = 0;
+    cui_rect bar_zone = { 0, 0, 0, 0 };
+    if (multiline && area.h > 0) {
         cui_text_layout_line *wl = NULL;
         int wn = cui__edit_lines(ui, font, size, buf, (int)strlen(buf), area.w, &wl);
         float total = wn * line_h;
-        e->scroll_y = cui__clampf(e->scroll_y - ui->scroll_dy * 40, 0, CUI_MAX(0, total - area.h));
-        ui->scroll_dy = 0;
+        float max = CUI_MAX(0, total - area.h);
+        cui_interact br = cui__interact(ui, bar_id, CUI_IF_DRAG | CUI_IF_KEEP_FOCUS);
+        if ((rf.hovered || br.hovered) && ui->scroll_dy != 0) {
+            /* wheel scrolls the text whether or not the field has focus */
+            e->scroll_y = cui__clampf(e->scroll_y - ui->scroll_dy * 40, 0, max);
+            ui->scroll_dy = 0;
+            e->bar_active = ui->time;
+        }
+        /* appended text keeps a view that sat at the end there */
+        if (o->follow_end && e->scroll_y >= e->last_max - 1.0f) e->scroll_y = max;
+        /* the caller moved the position (synchronised scrolling) */
+        if (o->scroll && *o->scroll >= 0 && fabsf(*o->scroll - e->ext_scroll) > 0.0005f)
+            e->scroll_y = cui__clampf(*o->scroll, 0, 1) * max;
+        if (max > 0.5f) {
+            float th = CUI_MAX(24.0f, area.h * area.h / total);
+            float track = area.h - th;
+            if (br.pressed && ui->mpressed[0]) {
+                float ty = area.y + (max > 0 ? e->scroll_y / max * track : 0);
+                e->bar_drag = true;
+                e->bar_grab = (ui->my >= ty && ui->my <= ty + th) ? ui->my - ty : th * 0.5f;
+            }
+            if (e->bar_drag && ui->mdown[0]) {
+                e->scroll_y = cui__clampf((ui->my - area.y - e->bar_grab) / (track > 1 ? track : 1) * max, 0, max);
+                e->bar_active = ui->time;
+            }
+            bar_thumb_h = th;
+            bar_thumb_y = area.y + e->scroll_y / max * track;
+            float pad_r = CUI__FIELD_PAD;
+            bar_zone = (cui_rect){ area.x + area.w + 1, area.y, pad_r - 2, area.h };
+        }
+        if (!ui->mdown[0]) e->bar_drag = false;
+        bool hot = br.hovered || e->bar_drag || rf.hovered;
+        bool recent = e->bar_active > 0 && ui->time - e->bar_active < 1.0;
+        if (recent) cui__wakeup_after(ui, (float)(1.0 - (ui->time - e->bar_active)) + 0.01f);
+        cui__tween(ui, &e->bar_t, (br.hovered || e->bar_drag) ? 1.0f : (hot || recent) ? 0.6f : 0.35f, 0.15f);
+        bar_max = max;
+        e->scroll_y = cui__clampf(e->scroll_y, 0, max);
+        e->last_max = max;
+        e->ext_scroll = max > 0 ? e->scroll_y / max : 0;
+        if (o->scroll) *o->scroll = e->ext_scroll;
     }
     int flags = 0;
     if (er.changed) flags |= CUI_CHANGED;
@@ -636,6 +688,16 @@ int cui__text_field(cui_ctx *ui, cui_id id, char *buf, size_t cap, const cui_inp
     p->caret = ui->accent == CUI_ACCENT_NEUTRAL ? CUI_C(ui, FOREGROUND) : CUI_C(ui, ACCENT);
     p->selection = ui->accent == CUI_ACCENT_NEUTRAL ? cui_alpha(cui_oklch(0.6f, 0.13f, 250, 1), 0.28f) : cui_alpha(CUI_C(ui, ACCENT), 0.26f);
     p->line_h = line_h;
+    if (multiline && bar_max > 0.5f) {
+        bool big = ui->hot == bar_id || e->bar_drag;
+        p->bar_id = bar_id;
+        p->bar_zone = bar_zone;
+        p->thumb_y = bar_thumb_y;
+        p->thumb_h = bar_thumb_h;
+        p->bar_w = big ? 7 : 5;
+        p->bar_alpha = (big ? 0.42f : 0.30f) * e->bar_t;
+        p->bar_color = CUI_C(ui, FOREGROUND);
+    }
     if (multiline) {
         cui_rect a = area;
         p->line_count = cui__edit_lines(ui, font, size, p->buf, len, a.w > 0 ? a.w : 200, &p->lines);

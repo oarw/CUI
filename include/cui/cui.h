@@ -583,6 +583,8 @@ typedef struct cui_input_opts {
     float height;              /* textarea: height in points; negative fills the space */
     const char *prefix;        /* muted text before the value, e.g. "$" or "https://" */
     const char *suffix;        /* muted text after the value, e.g. "USD" or "kg" */
+    float *scroll;             /* textarea: in/out scroll position, 0 top .. 1 end; writing a new value scrolls there */
+    bool follow_end;           /* textarea: stay at the end while text is appended, if it was there */
 } cui_input_opts;
 
 /* Single line text field. Returns CUI_CHANGED / CUI_SUBMITTED (Enter) flags. */

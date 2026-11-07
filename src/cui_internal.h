@@ -630,6 +630,10 @@ typedef struct cui_edit_state {
     bool had_focus;
     bool init;
     bool show_password;
+    /* textarea scrollbar */
+    float ext_scroll, last_max, bar_t, bar_grab;
+    bool bar_drag;
+    double bar_active;
 } cui_edit_state;
 void cui__edit_attach(cui_ctx *ui, cui_id id, cui_edit_state *e);   /* once per state: the history is freed with it */
 /* Snapshot before an edit. kind: 1 insert, 2 delete, 3 other; edits of the
